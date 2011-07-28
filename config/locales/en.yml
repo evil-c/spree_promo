@@ -37,6 +37,9 @@ en:
     first_order:
       name: First order
       description: Must be the customer's first order
+    sponsor:
+      name: Sponsored
+      description: Discount offered to one user that can be redeemed by any other
   product_rule:
     choose_products: Choose products
     label: "Order must contain {{select}} of these products"

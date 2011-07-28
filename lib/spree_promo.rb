@@ -43,23 +43,6 @@ module SpreePromo
           line_items.map {|li| li.variant.product}
         end
 
-        def update_totals(force_adjustment_recalculation=false)
-          self.payment_total = payments.completed.map(&:amount).sum
-          self.item_total = line_items.map(&:amount).sum
-
-          process_automatic_promotions
-
-          if force_adjustment_recalculation
-            applicable_adjustments, adjustments_to_destroy = adjustments.partition{|a| a.applicable?}
-            self.adjustments = applicable_adjustments
-            adjustments_to_destroy.each(&:destroy)
-          end
-
-          self.adjustment_total = self.adjustments.map(&:amount).sum
-          self.total            = self.item_total   + self.adjustment_total
-        end
-
-
         def process_automatic_promotions
           # recalculate amount
           self.promotion_credits.each do |credit|
@@ -100,7 +83,7 @@ module SpreePromo
 
       if File.basename( $0 ) != "rake"
         # register promotion rules
-        [Promotion::Rules::ItemTotal, Promotion::Rules::Product, Promotion::Rules::User, Promotion::Rules::FirstOrder].each &:register
+        [Promotion::Rules::ItemTotal, Promotion::Rules::Product, Promotion::Rules::User, Promotion::Rules::FirstOrder, Promotion::Rules::Sponsor].each &:register
 
         # register default promotion calculators
         [

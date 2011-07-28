@@ -26,10 +26,12 @@ class Promotion < ActiveRecord::Base
     !expired? && rules_are_eligible?(order)
   end
 
+  # Changed the credits_count comparison to '>', because the expired check happens in the on_save when for update_attributes in OrdersController#update
+  # and again in the Order#update!'s call to update_adjustments.  Problem is that the 2nd call will see the count as == usage_limit
   def expired?
     starts_at && Time.now < starts_at ||
     expires_at && Time.now > expires_at ||
-    usage_limit && credits_count >= usage_limit
+    usage_limit && credits_count > usage_limit
   end
 
   def credits_count
