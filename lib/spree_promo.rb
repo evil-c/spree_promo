@@ -5,79 +5,85 @@ module SpreePromo
   class Engine < Rails::Engine
     def self.activate
       # put class_eval and other logic that depends on classes outside of the engine inside this block
-      Product.class_eval do
-        has_and_belongs_to_many :promotion_rules
+      if Product.table_exists?
+        Product.class_eval do
+          has_and_belongs_to_many :promotion_rules
 
-        def possible_promotions
-          rules_with_matching_product_groups = product_groups.map(&:promotion_rules).flatten
-          all_rules = promotion_rules + rules_with_matching_product_groups
-          promotion_ids = all_rules.map(&:promotion_id).uniq
-          Promotion.automatic.scoped(:conditions => {:id => promotion_ids})
-        end
-      end
-
-      ProductGroup.class_eval do
-        has_many :promotion_rules
-      end
-
-      Order.class_eval do
-
-        has_many :promotion_credits, :conditions => "source_type='Promotion'", :dependent => :destroy
-
-        attr_accessible :coupon_code
-        attr_accessor :coupon_code
-        before_save :process_coupon_code, :if => "@coupon_code.present?"
-
-        def promotion_credit_exists?(credit)
-          promotion_credits.reload.detect { |c| c.source_id == credit.id }
-        end
-
-        def process_coupon_code
-          coupon = Promotion.find(:first, :conditions => ["UPPER(code) = ?", @coupon_code.upcase])
-          if coupon
-            coupon.create_discount(self)
+          def possible_promotions
+            rules_with_matching_product_groups = product_groups.map(&:promotion_rules).flatten
+            all_rules = promotion_rules + rules_with_matching_product_groups
+            promotion_ids = all_rules.map(&:promotion_id).uniq
+            Promotion.automatic.scoped(:conditions => {:id => promotion_ids})
           end
         end
-
-        def products
-          line_items.map {|li| li.variant.product}
+      end
+      
+      if ProductGroup.table_exists?
+        ProductGroup.class_eval do
+          has_many :promotion_rules
         end
+      end
 
-        def process_automatic_promotions
-          # recalculate amount
-          self.promotion_credits.each do |credit|
-            if credit.source.eligible?(self)
-              amount = -credit.source.calculator.compute(self).abs
-              if credit.amount != amount
-                # avoid infinite callbacks
-                PromotionCredit.update_all("amount = #{amount}", { :id => credit.id })
+      if Order.table_exists?
+        Order.class_eval do
+
+          has_many :promotion_credits, :conditions => "source_type='Promotion'", :dependent => :destroy
+
+          attr_accessible :coupon_code
+          attr_accessor :coupon_code
+          before_save :process_coupon_code, :if => "@coupon_code.present?"
+
+          def promotion_credit_exists?(credit)
+            promotion_credits.reload.detect { |c| c.source_id == credit.id }
+          end
+
+          def process_coupon_code
+            coupon = Promotion.find(:first, :conditions => ["UPPER(code) = ?", @coupon_code.upcase])
+            if coupon
+              coupon.create_discount(self)
+            end
+          end
+
+          def products
+            line_items.map {|li| li.variant.product}
+          end
+
+          def process_automatic_promotions
+            # recalculate amount
+            self.promotion_credits.each do |credit|
+              if credit.source.eligible?(self)
+                amount = -credit.source.calculator.compute(self).abs
+                if credit.amount != amount
+                  # avoid infinite callbacks
+                  PromotionCredit.update_all("amount = #{amount}", { :id => credit.id })
+                end
+              else
+                credit.destroy
               end
-            else
-              credit.destroy
+            end
+          
+            current_promotions = self.promotion_credits.map(&:source)
+            # return if current promotions can not be combined
+            return if current_promotions.any? { |promotion| !promotion.combine? }
+          
+            new_promotions = eligible_automatic_promotions - current_promotions
+            new_promotions.each do |promotion|
+              next if current_promotions.present? && !promotion.combine?
+              amount = promotion.calculator.compute(self).abs
+              amount = item_total if amount > item_total
+              if amount > 0
+                self.promotion_credits.create(
+                    :source => promotion,
+                    :amount => -amount,
+                    :label  => promotion.name
+                  )
+              end
             end
           end
-          
-          current_promotions = self.promotion_credits.map(&:source)
-          # return if current promotions can not be combined
-          return if current_promotions.any? { |promotion| !promotion.combine? }
-          
-          new_promotions = eligible_automatic_promotions - current_promotions
-          new_promotions.each do |promotion|
-            next if current_promotions.present? && !promotion.combine?
-            amount = promotion.calculator.compute(self).abs
-            amount = item_total if amount > item_total
-            if amount > 0
-              self.promotion_credits.create(
-                  :source => promotion,
-                  :amount => -amount,
-                  :label  => promotion.name
-                )
-            end
-          end
-        end
 
-        def eligible_automatic_promotions
-          @eligible_automatic_coupons ||= Promotion.automatic.select{|c| c.eligible?(self)}
+          def eligible_automatic_promotions
+            @eligible_automatic_coupons ||= Promotion.automatic.select{|c| c.eligible?(self)}
+          end
         end
       end
 
